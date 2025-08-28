@@ -12,11 +12,11 @@ except Exception:
     from astrbot.api.provider import ProviderResponse
 
 
-#全局实例
+# 全局实例
 INSTANCE: "KWShieldPlugin | None" = None
 
 
-@register("astrbot_plugin_external_shield", "you", "外置屏蔽词过滤（OpenAI兼容HTTP + LLM并联）", "2.1.0")
+@register("astrbot_plugin_external_shield", "you", "外置屏蔽词过滤（OpenAI兼容HTTP + LLM并联）", "2.2.0")
 class KWShieldPlugin(Star):
 
     def __init__(self, context: Context, config=None):
@@ -34,9 +34,9 @@ class KWShieldPlugin(Star):
         self.keywords: List[str] = self._load_keywords_list_first(cfg)
         self.keywords = self._dedup_clean(self.keywords)
 
-        # LLM（HTTP）并联判定
+        # LLM（HTTP）一次性判定（在“最终发送前”）
         self.llm_check_enable: bool = bool(cfg.get("llm_check_enable", False))
-        self.llm_scope: str = cfg.get("llm_scope", "both")  # both | input_only | output_only
+        self.llm_scope: str = cfg.get("llm_scope", "both")  # both | input_only | output_only （沿用原字段；实际仅在输出阶段使用）
         self.llm_timeout_sec: float = float(cfg.get("llm_timeout_sec", 6.0))
         self.llm_yes_char: str = (cfg.get("llm_yes_char", "Y") or "Y")[:1]
         self.llm_no_char: str = (cfg.get("llm_no_char", "N") or "N")[:1]
@@ -46,10 +46,10 @@ class KWShieldPlugin(Star):
             "如果用户/回复内容包含不适当、违法、暴力、辱骂、仇恨、成人或平台禁止内容，则返回 Y；否则返回 N。"
         )
 
+        # OpenAI 兼容接口
         self.api_endpoint: str = (cfg.get("api_endpoint", "") or "").strip()  # e.g. https://api.deepseek.com/v1/chat/completions
         self.model_name: str = (cfg.get("model_name", "") or "").strip()
-        self.api_key: str = (cfg.get("api_key", "") or "").strip()            # 你的 API Key
-        # Key 放置方式：Authorization Bearer / Header 自定义 / Query
+        self.api_key: str = (cfg.get("api_key", "") or "").strip()
         self.api_key_in: str = cfg.get("api_key_in", "authorization_bearer")  # authorization_bearer | header | query
         self.api_key_header_name: str = cfg.get("api_key_header_name", "X-API-Key")
         self.api_key_query_name: str = cfg.get("api_key_query_name", "api_key")
@@ -61,16 +61,15 @@ class KWShieldPlugin(Star):
             self.api_key_in
         )
 
-
         global INSTANCE
         INSTANCE = self
 
-    #工具：日志
+    # 工具：日志
     def _log(self, msg: str, *args):
         if self.debug_log:
             logger.info("[ExtShield] " + msg, *args)
 
-    #工具：解析
+    # 工具：解析
     def _load_keywords_list_first(self, cfg) -> List[str]:
         v = cfg.get("extra_keywords", None)
         if isinstance(v, list):
@@ -94,7 +93,7 @@ class KWShieldPlugin(Star):
                 seen.add(s); out.append(s)
         return out
 
-    #关键词命中
+    # 关键词命中
     def _hit_keywords(self, s: str | None) -> Optional[str]:
         if not (self.keyword_enable and s and self.keywords):
             return None
@@ -103,7 +102,7 @@ class KWShieldPlugin(Star):
                 return kw
         return None
 
-    #发送 HTTP（标准库；放线程避免阻塞事件循环）
+    # HTTP（放线程避免阻塞事件循环）
     async def _http_json(self, url: str, method: str, headers: dict, body_obj: dict, timeout_sec: float) -> Optional[dict]:
         def _do_request():
             data = json.dumps(body_obj, ensure_ascii=False).encode("utf-8")
@@ -115,11 +114,18 @@ class KWShieldPlugin(Star):
                 return json.loads(raw)
         try:
             return await asyncio.to_thread(_do_request)
+        except urllib.error.HTTPError as e:
+            try:
+                raw = e.read().decode("utf-8", "ignore")
+                self._log("HTTP %s -> %s: %s", url, e.code, raw[:200])
+            except Exception:
+                self._log("HTTP %s -> %s (no body)", url, e.code)
+            return None
         except Exception as e:
             self._log("HTTP error: %s", e)
             return None
 
-    #构造 URL（处理 query key 注入）
+    # URL 加 query key
     def _build_url_with_query_key(self, base_url: str) -> str:
         if self.api_key_in != "query" or not self.api_key:
             return base_url
@@ -132,7 +138,7 @@ class KWShieldPlugin(Star):
         except Exception:
             return base_url
 
-    #构造 Headers（注入 key）
+    # Headers 注入 key
     def _build_headers(self) -> dict:
         if not self.api_key:
             return {}
@@ -141,13 +147,13 @@ class KWShieldPlugin(Star):
         if self.api_key_in == "header":
             name = self.api_key_header_name.strip() or "X-API-Key"
             return {name: self.api_key}
-        # query 模式不在 header 放 key
         return {}
 
-    #LLM 并联路径：HTTP 判定（OpenAI 兼容 Chat Completions）
+    # LLM 一次性判定（OpenAI 兼容 Chat Completions）
     async def _llm_flag(self, text: str) -> bool:
         if not self.llm_check_enable:
             return False
+        # 仅在“输出阶段”使用；apply_to/llm_scope 在上层判断
         if not (self.api_endpoint and self.model_name and self.api_key):
             self._log("LLM check not configured (endpoint/model/api_key missing).")
             return False
@@ -171,7 +177,6 @@ class KWShieldPlugin(Star):
         if resp is None:
             return False
 
-        # 期望 OpenAI 兼容返回：choices[0].message.content
         try:
             out = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
         except Exception:
@@ -194,7 +199,7 @@ class KWShieldPlugin(Star):
             event.stop_event()
 
 
-#参数归一化工具：兼容不同钩子调用签名
+# 参数归一化（兼容不同钩子调用签名）
 def _as_plugin(obj: Any) -> Optional[KWShieldPlugin]:
     if isinstance(obj, KWShieldPlugin):
         return obj
@@ -231,72 +236,46 @@ def _normalize_output_args(args: Tuple[Any, ...]) -> Tuple[Optional[KWShieldPlug
     return (INSTANCE, None, None)
 
 
-# A. 输入并联（最高优先级）
 @filter.event_message_type(filter.EventMessageType.ALL, priority=999999)
 async def main_guard_input(*args):
-    plugin, event = _normalize_input_args(args)
-    if plugin is None or event is None:
-        return
-
-    if plugin.apply_to == "output_only":
-        return
-    text = (getattr(event, "message_str", "") or "")
-    plugin._log("INPUT text[0:60]=%r", text[:60])
-
-    kw = plugin._hit_keywords(text)
-    llm_task = None
-    if plugin.llm_check_enable and plugin.llm_scope in ("both", "input_only"):
-        llm_task = asyncio.create_task(plugin._llm_flag(text))
-
-    if kw is not None:
-        plugin._log("INPUT kw-hit=%r", kw)
-        if llm_task:
-            llm_task.cancel()
-            plugin._log("INPUT cancel llm task due to kw-hit")
-        await plugin._do_action_and_stop(event, reason=f"kw:{kw}")
-        return
-
-    if llm_task:
-        try:
-            flagged = await llm_task
-        except Exception:
-            flagged = False
-        if flagged:
-            await plugin._do_action_and_stop(event, reason="llm:Y")
+    # 占位
+    return
 
 
-# B. 输出并联（最高优先级）
+#B. 最终发送前统一判定
 @filter.on_llm_response(priority=999999)
 async def main_guard_output(*args):
     plugin, event, resp = _normalize_output_args(args)
     if plugin is None or event is None or resp is None:
         return
 
+    # 仅在输出阶段启用；若用户配置为只拦“输入”，则跳过
     if plugin.apply_to == "input_only":
         return
 
+    # 取用户输入与模型输出
+    user_text = (getattr(event, "message_str", "") or "").strip()
     out = getattr(resp, "completion_text", None) or getattr(resp, "text", None)
     if not isinstance(out, str):
         return
-    plugin._log("OUTPUT text[0:60]=%r", out[:60])
+    bot_text = out.strip()
 
-    kw = plugin._hit_keywords(out)
-    llm_task = None
-    if plugin.llm_check_enable and plugin.llm_scope in ("both", "output_only"):
-        llm_task = asyncio.create_task(plugin._llm_flag(out))
+    # 拼成一次性判定文本
+    combined = f"[USER]: {user_text}\n[ASSISTANT]: {bot_text}"
+    plugin._log("CHECK combined[0:120]=%r", combined[:120])
 
-    if kw is not None:
-        plugin._log("OUTPUT kw-hit=%r", kw)
-        if llm_task:
-            llm_task.cancel()
-            plugin._log("OUTPUT cancel llm task due to kw-hit")
+    # 1) 关键词一次性判定
+    kw = plugin._hit_keywords(combined)
+    if kw is not None and plugin.apply_to in ("both", "output_only"):
+        plugin._log("OUTPUT kw-hit=%r (combined)", kw)
         await plugin._do_action_and_stop(event, reason=f"kw:{kw}")
         return
 
-    if llm_task:
-        try:
-            flagged = await llm_task
-        except Exception:
-            flagged = False
+    # 2) LLM 一次性判定（仅当启用，且 scope 涵盖输出）
+    if plugin.llm_check_enable and plugin.llm_scope in ("both", "output_only"):
+        flagged = await plugin._llm_flag(combined)
         if flagged:
             await plugin._do_action_and_stop(event, reason="llm:Y")
+            return
+
+    # 未命中 -> 放行（什么都不做，继续由框架发送原回复）
