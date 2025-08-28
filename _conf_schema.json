@@ -1,0 +1,102 @@
+{
+  "apply_to": {
+    "type": "string",
+    "options": ["both", "input_only", "output_only"],
+    "default": "both",
+    "description": "作用范围（输入/输出/两者）"
+  },
+
+  "keyword_action": {
+    "type": "string",
+    "options": ["reply", "silent"],
+    "default": "reply",
+    "description": "违规后的动作：reply=回复自定义文案；silent=完全不回"
+  },
+  "custom_text": {
+    "type": "string",
+    "default": "这个呢，咱也不知道呢喵",
+    "description": "reply 模式下回复的文案"
+  },
+
+  "debug_log_enable": {
+    "type": "bool",
+    "default": true,
+    "description": "打印调试日志到控制台"
+  },
+
+  "keyword_enable": {
+    "type": "bool",
+    "default": true,
+    "description": "开启关键词检测"
+  },
+  "extra_keywords": {
+    "type": "list",
+    "items": { "type": "string" },
+    "default": ["8964", "跳跳虎"],
+    "description": "屏蔽词列表（JSON 数组）"
+  },
+
+  "llm_check_enable": {
+    "type": "bool",
+    "default": false,
+    "description": "开启 LLM 违规判定（并联）"
+  },
+  "llm_scope": {
+    "type": "string",
+    "options": ["both", "input_only", "output_only"],
+    "default": "both",
+    "description": "LLM 判定作用范围"
+  },
+  "llm_timeout_sec": {
+    "type": "float",
+    "default": 6.0,
+    "description": "LLM 判定超时（秒）"
+  },
+  "llm_yes_char": {
+    "type": "string",
+    "default": "Y",
+    "description": "违规：LLM 应返回的单字符"
+  },
+  "llm_no_char": {
+    "type": "string",
+    "default": "N",
+    "description": "不违规：LLM 应返回的单字符"
+  },
+  "llm_system_prompt": {
+    "type": "text",
+    "default": "你是内容安全判定器。仅返回一个字符：Y 表示违规；N 表示不违规。不要解释、不要输出多余字符。如果用户/回复内容包含不适当、违法、暴力、辱骂、仇恨、成人或平台禁止内容，则返回 Y；否则返回 N。",
+    "description": "llm检测系统提示词"
+  },
+
+  "api_endpoint": {
+    "type": "string",
+    "default": "",
+    "description": "OpenAI 兼容 Chat Completions 端点（如：https://api.deepseek.com/v1/chat/completions）"
+  },
+  "model_name": {
+    "type": "string",
+    "default": "",
+    "description": "模型名称"
+  },
+  "api_key": {
+    "type": "string",
+    "default": "",
+    "description": "API Key"
+  },
+  "api_key_in": {
+    "type": "string",
+    "options": ["authorization_bearer", "header", "query"],
+    "default": "authorization_bearer",
+    "description": "API Key 放置方式：Authorization Bearer / 自定义 Header / URL Query"
+  },
+  "api_key_header_name": {
+    "type": "string",
+    "default": "X-API-Key",
+    "description": "当选择 header 时，使用此 Header 名称放置 key"
+  },
+  "api_key_query_name": {
+    "type": "string",
+    "default": "api_key",
+    "description": "当选择 query 时，使用此 query 参数名放置 key"
+  }
+}

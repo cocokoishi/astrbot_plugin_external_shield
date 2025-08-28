@@ -1,0 +1,6 @@
+name: astrbot_plugin_external_shield
+desc: 一个较为增强版的屏蔽词过滤插件，带关键词匹配检测+llm检测
+version: 2.1.0
+author: 椰子梨梨花
+repo: https://github.com/cocokoishi/astrbot_plugin_external_shield
+
