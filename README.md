@@ -1,3 +1,3 @@
 # astrbot_plugin_external_shield
-外置屏蔽词过滤，替代astrbot内置的，因为astrbot内置的暂时无法改变检测到屏蔽词后的输出。  
+一个较为增强版的屏蔽词过滤插件，带关键词匹配检测+llm检测  
 Made 100% with Deepseek V3.1
